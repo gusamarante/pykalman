@@ -31,6 +31,9 @@
 # DAMAGE.
 '''
 Utility functions taken from scikit-learn
+
+Correction for masked arrays
+https://gist.github.com/JesseLivezey/5d80ef651e75b21a7079
 '''
 
 import inspect
@@ -63,14 +66,14 @@ def log_multivariate_normal_density(X, means, covars, min_covar=1.e-7):
     log_prob = np.empty((n_samples, nmix))
     for c, (mu, cv) in enumerate(zip(means, covars)):
         try:
-            cv_chol = linalg.cholesky(cv, lower=True)
+            cv_chol = linalg.cholesky(np.asarray(cv), lower=True)
         except linalg.LinAlgError:
             # The model is most probabily stuck in a component with too
             # few observations, we need to reinitialize this components
-            cv_chol = linalg.cholesky(cv + min_covar * np.eye(n_dim),
+            cv_chol = linalg.cholesky(np.asarray(cv + min_covar * np.eye(n_dim)),
                                       lower=True)
         cv_log_det = 2 * np.sum(np.log(np.diagonal(cv_chol)))
-        cv_sol = solve_triangular(cv_chol, (X - mu).T, lower=True).T
+        cv_sol = solve_triangular(cv_chol, np.asarray((X - mu).T), lower=True).T
         log_prob[:, c] = - .5 * (np.sum(cv_sol ** 2, axis=1) + \
                                      n_dim * np.log(2 * np.pi) + cv_log_det)
 
