@@ -70,14 +70,76 @@ def log_multivariate_normal_density(X, means, covars, min_covar=1.e-7):
         except linalg.LinAlgError:
             # The model is most probabily stuck in a component with too
             # few observations, we need to reinitialize this components
-            cv_chol = linalg.cholesky(np.asarray(cv + min_covar * np.eye(n_dim)),
+
+            # THIS IS THE ORIGINAL COMMAND, BUT IT WAS NOT ALWAYS ENOUGH TO ASSURE THAT
+            # 'cv' WAS POSITIVE DEFINITE
+            # cv_chol = linalg.cholesky(np.asarray(cv + min_covar * np.eye(n_dim)),
+            #                           lower=True)
+
+            # I ADDED THIS TO FIND THE NEAREST PD MATRIX
+            near_pd = nearest_pd(np.asarray(cv))
+            cv_chol = linalg.cholesky(near_pd,
                                       lower=True)
+
         cv_log_det = 2 * np.sum(np.log(np.diagonal(cv_chol)))
         cv_sol = solve_triangular(cv_chol, np.asarray((X - mu).T), lower=True).T
         log_prob[:, c] = - .5 * (np.sum(cv_sol ** 2, axis=1) + \
                                      n_dim * np.log(2 * np.pi) + cv_log_det)
 
     return log_prob
+
+
+def nearest_pd(A):
+    """Find the nearest positive-definite matrix to input
+
+    A Python/Numpy port of John D'Errico's `nearestSPD` MATLAB code [1], which
+    credits [2].
+
+    [1] https://www.mathworks.com/matlabcentral/fileexchange/42885-nearestspd
+
+    [2] N.J. Higham, "Computing a nearest symmetric positive semidefinite
+    matrix" (1988): https://doi.org/10.1016/0024-3795(88)90223-6
+    """
+
+    B = (A + A.T) / 2
+    _, s, V = np.linalg.svd(B)
+
+    H = np.dot(V.T, np.dot(np.diag(s), V))
+
+    A2 = (B + H) / 2
+
+    A3 = (A2 + A2.T) / 2
+
+    if ispd(A3):
+        return A3
+
+    spacing = np.spacing(np.linalg.norm(A))
+    # The above is different from [1]. It appears that MATLAB's `chol` Cholesky
+    # decomposition will accept matrixes with exactly 0-eigenvalue, whereas
+    # Numpy's will not. So where [1] uses `eps(mineig)` (where `eps` is Matlab
+    # for `np.spacing`), we use the above definition. CAVEAT: our `spacing`
+    # will be much larger than [1]'s `eps(mineig)`, since `mineig` is usually on
+    # the order of 1e-16, and `eps(1e-16)` is on the order of 1e-34, whereas
+    # `spacing` will, for Gaussian random matrixes of small dimension, be on
+    # othe order of 1e-16. In practice, both ways converge, as the unit test
+    # below suggests.
+    I = np.eye(A.shape[0])
+    k = 1
+    while not ispd(A3):
+        mineig = np.min(np.real(np.linalg.eigvals(A3)))
+        A3 += I * (-mineig * k**2 + spacing)
+        k += 1
+
+    return A3
+
+
+def ispd(B):
+    """Returns true when input is positive-definite, via Cholesky"""
+    try:
+        _ = np.linalg.cholesky(B)
+        return True
+    except np.linalg.LinAlgError:
+        return False
 
 
 def check_random_state(seed):
